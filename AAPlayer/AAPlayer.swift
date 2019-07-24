@@ -6,24 +6,39 @@
 //  Copyright © 2017年 Alan. All rights reserved.
 //
 
+
+// Protocol to update the image icon of play and pause button
+public protocol playPauseDelegate : class
+{
+    func onButtonPress(type: String)
+}
+
+
+public protocol observeStatus : class {
+    func startObserving(type : Bool)
+}
+
 import UIKit
 import AVFoundation
 import AVKit
 
 public protocol AAPlayerDelegate : class {
-   
-    typealias playerItemStatus = AVPlayerItemStatus
-    func callBackDownloadDidFinish(_ status:AVPlayerItemStatus?)
+    
+    typealias playerItemStatus = AVPlayerItem.Status
+    func callBackDownloadDidFinish(_ status:AVPlayerItem.Status?)
 }
 
 
 public class AAPlayer: UIView {
     
-    public weak var delegate:AAPlayerDelegate?
-   
-    fileprivate var player:AVPlayer?
-    fileprivate var playerLayer:AVPlayerLayer?
-    fileprivate var playerItem:AVPlayerItem?
+    public weak var delegate : AAPlayerDelegate?
+    public weak var pizDelegate : playPauseDelegate?
+    public weak var obsDelegate : observeStatus?
+    
+    
+    public var player:AVPlayer?
+    public var playerLayer:AVPlayerLayer?
+    public var playerItem : AVPlayerItem?
     fileprivate var playUrl:String!
     fileprivate var playButton:AAPlayButton!
     fileprivate var playActivityIndicator:AAPlayerActivityIndicicatorView!
@@ -31,10 +46,11 @@ public class AAPlayer: UIView {
     fileprivate var rotateSizeButton:AAPlayerRotateButton!
     fileprivate var playProgressView:AAPlayProgressView!
     fileprivate var playerSlider:AAPlayerSlider!
-    fileprivate var playerBottomView:UIView!
+    public var playerBottomView:UIView!
     fileprivate var timeLabel:UILabel!
-    fileprivate var timer:Timer?
-    fileprivate var playbackObserver:Any?
+    public var timer:Timer?
+    public var playbackObserver:Any?
+    
     
     
     override init(frame: CGRect) {
@@ -61,7 +77,7 @@ public class AAPlayer: UIView {
         initWithPlayActivityIndicator()
         initWithRotateButton()
     }
-
+    
     deinit {
         
         removeAllObserver()
@@ -80,11 +96,12 @@ public class AAPlayer: UIView {
         super.init(coder: aDecoder)
         
     }
-
+    
     //MARK:- initialize method
     fileprivate func initWithPlayBottomView() {
         
-        layer.backgroundColor = UIColor(red: 31/255, green: 37/255, blue: 61/255, alpha: 1).cgColor
+        //        layer.backgroundColor = UIColor(red: 31/255, green: 37/255, blue: 61/255, alpha: 1).cgColor
+        //        layer.backgroundColor = UIColor(red:0.01, green:0.46, blue:0.73, alpha:1.0).cgColor
         playerBottomView = UIView()
         playerBottomView.backgroundColor = UIColor.black
         playerBottomView.alpha = 0
@@ -93,7 +110,6 @@ public class AAPlayer: UIView {
     
     
     fileprivate func initWithPlayButton() {
-        
         playButton = AAPlayButton()
         playButton.addTarget(self, action: #selector(startPlay), for: .touchUpInside)
         addSubview(playButton)
@@ -127,7 +143,6 @@ public class AAPlayer: UIView {
     }
     
     fileprivate func initWithSlider() {
-        
         playerSlider = AAPlayerSlider()
         playerSlider.tintColor = UIColor.clear
         playerSlider.backgroundColor = UIColor.clear
@@ -166,26 +181,28 @@ public class AAPlayer: UIView {
     
     //MARL:- interface orientation
     fileprivate func detectedInterfaceOrientation()  {
-        
         switch UIDevice.current.orientation {
         case .portrait:
             rotateSizeButton.isSelected = false
+            self.playerBottomView.alpha = 0
             break
         case .landscapeRight:
             rotateSizeButton.isSelected = true
+            self.playerBottomView.alpha = 1
             break
         case .landscapeLeft:
             rotateSizeButton.isSelected = true
+            self.playerBottomView.alpha = 1
             break
         default:
             rotateSizeButton.isSelected = false
+            self.playerBottomView.alpha = 1
             break
         }
     }
     
     //MARK:- setting player
     fileprivate func setPlayRemoteUrl() {
-        
         if playUrl == nil || playUrl == "" {
             return
         }
@@ -203,20 +220,17 @@ public class AAPlayer: UIView {
     }
     
     //MARK:- setting observer
-    fileprivate func setAllObserver() {
-        
+    public func setAllObserver() {
         player?.addObserver(self, forKeyPath: "rate", options: NSKeyValueObservingOptions.new, context: nil)
         playerItem?.addObserver(self, forKeyPath: "loadedTimeRanges", options: NSKeyValueObservingOptions.new, context: nil)
         playerItem?.addObserver(self, forKeyPath: "status", options: NSKeyValueObservingOptions.new, context: nil)
-
+        
     }
     
-    fileprivate func removeAllObserver() {
-        
+    public func removeAllObserver() {
         player?.removeObserver(self, forKeyPath: "rate")
         playerItem?.removeObserver(self, forKeyPath: "loadedTimeRanges")
         playerItem?.removeObserver(self, forKeyPath: "status")
-        
     }
     
     
@@ -225,6 +239,8 @@ public class AAPlayer: UIView {
         if keyPath == "status" {
             
             observePlayerStatus()
+            obsDelegate?.startObserving(type: true)
+            
             
         } else if keyPath == "loadedTimeRanges" {
             
@@ -245,9 +261,12 @@ public class AAPlayer: UIView {
     
     
     //MARK:- check playItem status
-    fileprivate func observePlayerStatus() {
+    public func observePlayerStatus() {
         
-        let status:AVPlayerItemStatus = (player?.currentItem?.status)!
+        let status:AVPlayerItem.Status = (player?.currentItem?.status)!
+        
+        print("Status \(status)")
+        
         switch status {
         case .readyToPlay:
             
@@ -255,10 +274,15 @@ public class AAPlayer: UIView {
             playerSlider.addTarget(self, action: #selector(changePlayerProgress), for: .valueChanged)
             playerSlider.maximumValue = Float(CMTimeGetSeconds((playerItem?.duration)!))
             let allTimeString = timeFotmatter(Float(CMTimeGetSeconds((playerItem?.duration)!)))
-            playbackObserver = player?.addPeriodicTimeObserver(forInterval: CMTimeMake(1, 1), queue: nil, using: { (time) in
+            playbackObserver = player?.addPeriodicTimeObserver(forInterval: CMTimeMake(value: 1, timescale: 1), queue: nil, using: { (time) in
                 let during = self.playerItem!.currentTime()
+                
+                print(during)
+                
                 let time = during.value / Int64(during.timescale)
+                
                 self.timeLabel.text = "\(self.timeFotmatter(Float(time))) / \(allTimeString)"
+                
                 if !self.playerSlider.isHighlighted {
                     self.playerSlider.value = Float(time)
                 }
@@ -278,25 +302,27 @@ public class AAPlayer: UIView {
     
     
     //MARK:- call back playItem status
-    fileprivate func downloadDidFinish(_ status:AVPlayerItemStatus?) {
-    
+    public func downloadDidFinish(_ status:AVPlayerItem.Status?) {
+        
         delegate?.callBackDownloadDidFinish(status)
     }
- 
-   //MARK:- get buffer time duration
-    fileprivate func getBufferTimeDuration() -> TimeInterval {
     
+    //MARK:- get buffer time duration
+    public func getBufferTimeDuration() -> TimeInterval {
+        
+        print(player)
+        
         let loadedTimeRanges =  player!.currentItem!.loadedTimeRanges
         guard let timeRange = loadedTimeRanges.first?.timeRangeValue else { return 0.0 }
         let start = CMTimeGetSeconds(timeRange.start)
         let duration = CMTimeGetSeconds(timeRange.duration)
         let currentTimeDuration = (start + duration)
         return currentTimeDuration
-
+        
     }
     
     //MARK:- calculate time formatter
-    fileprivate func timeFotmatter(_ time:Float) -> String {
+    public func timeFotmatter(_ time:Float) -> String {
         
         var hr:Int!
         var min:Int!
@@ -321,9 +347,10 @@ public class AAPlayer: UIView {
     }
     
     //MARK:- setting player display
-    @objc fileprivate func startPlay() {
+    @objc public func startPlay() {
         
         if playButton.isHidden == false {
+            //
             setPlayRemoteUrl()
             setPlayBottomViewAnimation()
             playActivityIndicator.startAnimation()
@@ -334,6 +361,7 @@ public class AAPlayer: UIView {
             playButton.isSelected = true
             playButton.isHidden = true
             smallPlayButton.isSelected = true
+            pizDelegate?.onButtonPress(type: "false")
             stopTimer()
             startTimer()
             
@@ -341,41 +369,44 @@ public class AAPlayer: UIView {
             player?.pause()
             playButton.isSelected = false
             smallPlayButton.isSelected = false
+            pizDelegate?.onButtonPress(type: "true")
             stopTimer()
         }
-
+        
+        //
+        
     }
     
-    override public func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        
-        setPlayBottomViewAnimation()
-        stopTimer()
-        if player?.rate == 1 && playerBottomView.alpha == 1 {
-            startTimer()
-        }
-    }
+    //    override public func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    //
+    //        setPlayBottomViewAnimation()
+    //        stopTimer()
+    //        if player?.rate == 1 && playerBottomView.alpha == 1 {
+    //            startTimer()
+    //        }
+    //    }
     
     @objc fileprivate func setPlayBottomViewAnimation() {
         
-        UIView.animate(withDuration: 0.5) {
-            if self.playerBottomView.alpha == 0 {
-                self.playerBottomView.alpha = 1
-            } else {
-                self.playerBottomView.alpha = 0
-            }
-        }
-
+        //        UIView.animate(withDuration: 0.5) {
+        //            if self.playerBottomView.alpha == 0 {
+        //                self.playerBottomView.alpha = 1
+        //            } else {
+        //                self.playerBottomView.alpha = 0
+        //            }
+        //        }
+        
     }
     
     
     //MARK:- timer
     fileprivate func startTimer() {
         
-        timer = Timer()
-        timer = Timer.scheduledTimer(timeInterval: 4, target: self, selector: #selector(setPlayBottomViewAnimation), userInfo: nil, repeats: false)
+        //        timer = Timer()
+        //        timer = Timer.scheduledTimer(timeInterval: 4, target: self, selector: #selector(setPlayBottomViewAnimation), userInfo: nil, repeats: false)
     }
     
-    fileprivate func stopTimer() {
+    public func stopTimer() {
         
         if timer == nil {
             return
@@ -385,16 +416,20 @@ public class AAPlayer: UIView {
     }
     
     //MARK:- change player progress
-    @objc fileprivate func changePlayerProgress() {
+    @objc public func changePlayerProgress() {
+        
+        print(playerSlider.value)
+        
+        print("Seeker Value \(playerSlider.value)")
         
         playActivityIndicator.startAnimation()
         let seekDuration = playerSlider.value
-        player?.seek(to: CMTimeMake(Int64(seekDuration), 1), completionHandler: { (BOOL) in
+        player?.seek(to: CMTimeMake(value: Int64(seekDuration), timescale: 1), completionHandler: { (BOOL) in
             self.playActivityIndicator.stopAnimation()
         })
-
+        
     }
-
+    
     @objc fileprivate func touchPlayerProgress() {
         
         if playerSlider.isHighlighted {
@@ -405,8 +440,7 @@ public class AAPlayer: UIView {
     }
     
     //MARK: - resetting display view
-    fileprivate func resettingObject() {
-        
+    public func resettingObject() {
         player = nil
         playerLayer = nil
         playbackObserver = nil
@@ -445,23 +479,23 @@ public class AAPlayer: UIView {
         
         player?.pause()
     }
-   
-    /*
-    // Only override draw() if you perform custom drawing.
-    // An empty implementation adversely affects performance during animation.
-    override func draw(_ rect: CGRect) {
-        // Drawing code
-    }
-    */
     
-
+    /*
+     // Only override draw() if you perform custom drawing.
+     // An empty implementation adversely affects performance during animation.
+     override func draw(_ rect: CGRect) {
+     // Drawing code
+     }
+     */
+    
+    
 }
 
 
 extension AAPlayerDelegate {
     
-    public func callBackDownloadDidFinish(_ status:AVPlayerItemStatus?) {
+    public func callBackDownloadDidFinish(_ status:AVPlayerItem.Status?) {
         
-      
+        
     }
 }
